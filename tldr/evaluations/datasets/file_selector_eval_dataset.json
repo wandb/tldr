@@ -1,0 +1,44 @@
+[
+  {
+    "diff_content": "diff --git a/src/main.py b/src/main.py\nindex abc123..def456 100644\n--- a/src/main.py\n+++ b/src/main.py\n@@ -10,7 +10,7 @@ class DataProcessor:\n     def process_data(self, data):\n         # Process the input data\n-        result = self.transform(data)\n+        result = self.enhanced_transform(data)\n         return result\n \n     def transform(self, data):",
+    "grep_output": "src/utils.py:25:def enhanced_transform(data):\nsrc/utils.py:26:    # Enhanced version of transform function\nsrc/utils.py:27:    return data * 2\n\nsrc/api.py:42:    result = processor.enhanced_transform(request.data)\nsrc/api.py:43:    return jsonify({'result': result})\n\ntests/test_utils.py:30:    def test_enhanced_transform(self):\ntests/test_utils.py:31:        data = 5\ntests/test_utils.py:32:        result = enhanced_transform(data)\ntests/test_utils.py:33:        self.assertEqual(result, 10)",
+    "expected_selection": [
+      {
+        "file_path": "src/utils.py",
+        "start_line": 25,
+        "end_line": 27
+      },
+      {
+        "file_path": "src/api.py",
+        "start_line": 42,
+        "end_line": 43
+      }
+    ]
+  },
+  {
+    "diff_content": "diff --git a/lib/models/user.rb b/lib/models/user.rb\nindex 123abc..456def 100644\n--- a/lib/models/user.rb\n+++ b/lib/models/user.rb\n@@ -15,6 +15,10 @@ class User < ApplicationRecord\n   validates :email, presence: true, uniqueness: true\n   validates :password, length: { minimum: 8 }, allow_nil: true\n \n+  def active_subscriptions\n+    subscriptions.where(status: 'active')\n+  end\n+\n   def admin?\n     role == 'admin'\n   end",
+    "grep_output": "app/controllers/subscription_controller.rb:25:    @subscriptions = current_user.subscriptions.where(status: 'active')\napp/controllers/subscription_controller.rb:45:    @active = current_user.subscriptions.where(status: 'active')\n\napp/views/users/show.html.erb:20:    <% if @user.subscriptions.where(status: 'active').any? %>\napp/views/users/show.html.erb:21:      <p>You have active subscriptions!</p>\n\napp/services/billing_service.rb:30:    def process_payment(user)\napp/services/billing_service.rb:31:      return unless user.subscriptions.where(status: 'active').any?\napp/services/billing_service.rb:32:      # Process payment logic",
+    "expected_selection": [
+      {
+        "file_path": "app/controllers/subscription_controller.rb",
+        "start_line": 24,
+        "end_line": 26
+      },
+      {
+        "file_path": "app/controllers/subscription_controller.rb",
+        "start_line": 44,
+        "end_line": 46
+      },
+      {
+        "file_path": "app/views/users/show.html.erb",
+        "start_line": 19,
+        "end_line": 22
+      },
+      {
+        "file_path": "app/services/billing_service.rb",
+        "start_line": 29,
+        "end_line": 33
+      }
+    ]
+  }
+] 

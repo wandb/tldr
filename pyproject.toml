@@ -1,0 +1,19 @@
+[project]
+name = "tldr"
+version = "0.1.0"
+description = "GitHub PR summarizer using LLMs"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "openai>=1.72.0",
+    "rich>=14.0.0",
+    "typer>=0.15.2",
+    "weave>=0.51.42",
+]
+
+[project.scripts]
+tldr = "tldr.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

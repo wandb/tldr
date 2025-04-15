@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 
 from tldr.utils import find_git_root
-from tldr.agent import agent_loop
+from tldr.agent import run_agent
 from tldr.chat import chat_loop
 
 app = typer.Typer()
@@ -68,8 +68,8 @@ def summarize(
     console.print(f"Using OpenAI model: [bold]{model}[/bold]")
     console.print(f"Target context size: [bold]{max_context_tokens}[/bold] tokens")
 
-    # Generate the summary
-    summary = agent_loop(git_repo_path, model)
+    # Generate the summary - use run_agent which handles the async event loop
+    summary = run_agent(git_repo_path, model)
 
     # Save to output file if specified
     if output_file:

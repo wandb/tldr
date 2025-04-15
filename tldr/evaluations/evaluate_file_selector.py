@@ -5,7 +5,7 @@ import json
 import typer
 import functools
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from tldr.agent import select_relevant_files_and_lines
 from tldr.utils import get_openai_client
@@ -20,13 +20,13 @@ def load_dataset(file_path: Path) -> List[Dict[str, Any]]:
             data = json.load(f)
         return data
     except FileNotFoundError:
-        print(f"Error: Dataset file not found at {file_path}")
+        print(f"[red]Error: Dataset file not found at {file_path}[/red]")
         raise typer.Exit(code=1)
     except json.JSONDecodeError:
-        print(f"Error: Could not decode JSON from {file_path}")
+        print(f"[red]Error: Could not decode JSON from {file_path}[/red]")
         raise typer.Exit(code=1)
     except Exception as e:
-        print(f"Error loading dataset: {e}")
+        print(f"[red]Error loading dataset: {e}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -105,12 +105,14 @@ class FileSelectorScorer(Scorer):
                 actual=actual_json,
             )
 
-            response = client.chat.completions.create(
-                model=self.scorer_model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=1000,
-                response_format={"type": "json_object"},
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=self.scorer_model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=1000,
+                    response_format={"type": "json_object"},
+                )
             )
             content = response.choices[0].message.content
 
@@ -196,10 +198,12 @@ def select_files_with_model(
     Wrapper function that calls select_relevant_files_and_lines with provided model.
     """
     try:
-        return select_relevant_files_and_lines(
-            combined_diff_content=diff_content,
-            combined_grep_output=grep_output,
-            model=eval_model,
+        return asyncio.run(
+            select_relevant_files_and_lines(
+                combined_diff_content=diff_content,
+                combined_grep_output=grep_output,
+                model=eval_model,
+            )
         )
     except Exception as e:
         print(f"Error in select_files_with_model: {e}")

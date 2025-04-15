@@ -3,6 +3,7 @@ LLM Agent functionality for analyzing PR content.
 """
 
 import weave
+import asyncio
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import re
@@ -10,7 +11,7 @@ import re
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from tldr.utils import run_command, get_openai_client
+from tldr.utils import run_command_async, get_openai_client
 from tldr.git import get_current_pr, process_pr_files, PRDiff
 
 console = Console()
@@ -249,7 +250,7 @@ def publish_prompts():
 
 
 @weave.op()
-def extract_relevant_code(file_content: str, diff: str, model: str) -> str:
+async def extract_relevant_code(file_content: str, diff: str, model: str) -> str:
     """Use LLM to extract only the most relevant parts of a file based on the diff"""
     try:
         client = get_openai_client()
@@ -268,7 +269,7 @@ def extract_relevant_code(file_content: str, diff: str, model: str) -> str:
             diff_summary=diff_summary, file_content_preview=file_content_preview
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.1,
@@ -286,7 +287,7 @@ def extract_relevant_code(file_content: str, diff: str, model: str) -> str:
 
 
 @weave.op()
-def summarize_grep_results(grep_results: str, pattern: str, model: str) -> str:
+async def summarize_grep_results(grep_results: str, pattern: str, model: str) -> str:
     """Summarize grep results to focus on the most relevant matches"""
     if len(grep_results) <= 3000:
         return grep_results
@@ -302,7 +303,7 @@ def summarize_grep_results(grep_results: str, pattern: str, model: str) -> str:
             pattern=pattern, grep_results_preview=grep_results_preview
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.1,
@@ -319,7 +320,7 @@ def summarize_grep_results(grep_results: str, pattern: str, model: str) -> str:
 
 
 @weave.op()
-def extract_code_patterns(diff_content: str, model: str) -> List[str]:
+async def extract_code_patterns(diff_content: str, model: str) -> List[str]:
     """Use LLM to extract specific code patterns from a combined diff string for searching,
     focusing on critical dependencies."""
     patterns = []
@@ -339,7 +340,7 @@ def extract_code_patterns(diff_content: str, model: str) -> List[str]:
             )
 
         # Call the internal LLM function
-        llm_response_content = _call_pattern_extractor_llm(llm_diff_input, model)
+        llm_response_content = await _call_pattern_extractor_llm(llm_diff_input, model)
 
         if llm_response_content:
             # Split the response by newline and process each line
@@ -375,12 +376,12 @@ def extract_code_patterns(diff_content: str, model: str) -> List[str]:
         return []
 
 
-def _call_pattern_extractor_llm(diff_content: str, model: str) -> Optional[str]:
+async def _call_pattern_extractor_llm(diff_content: str, model: str) -> Optional[str]:
     """Internal function to call the LLM for pattern extraction."""
     try:
         client = get_openai_client()
         messages = CODE_PATTERN_EXTRACTOR_PROMPT.format(diff_content=diff_content)
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.2,
@@ -410,7 +411,7 @@ def generate_git_grep_commands(patterns: List[str]) -> List[str]:
 
 
 @weave.op()
-def evaluate_context_sufficiency(
+async def evaluate_context_sufficiency(
     context: List[Dict[str, str]], model: str
 ) -> Dict[str, Any]:
     """
@@ -435,7 +436,7 @@ def evaluate_context_sufficiency(
 
         messages = CONTEXT_EVALUATOR_PROMPT.format(context_summary=context_summary)
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,  # Consider using a faster/cheaper model if appropriate
             messages=messages,
             temperature=0.1,
@@ -473,7 +474,7 @@ def evaluate_context_sufficiency(
 
 
 @weave.op()
-def summarize_file_context_for_pattern(
+async def summarize_file_context_for_pattern(
     file_path: str,
     pattern: str,
     matches: List[Dict[str, Any]],  # e.g., [{'line': 123, 'content': '...'}, ...]
@@ -529,7 +530,7 @@ def summarize_file_context_for_pattern(
             file_content_preview=file_content_preview,
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.1,
@@ -551,7 +552,7 @@ def summarize_file_context_for_pattern(
 
 
 @weave.op()
-def select_relevant_files_and_lines(
+async def select_relevant_files_and_lines(
     combined_diff_content: str,
     combined_grep_output: str,
     model: str,
@@ -586,7 +587,7 @@ def select_relevant_files_and_lines(
             combined_grep_output=grep_preview,
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.1,
@@ -651,46 +652,12 @@ def select_relevant_files_and_lines(
         )
         return selected_files
 
-    except Exception as e:
+    except Exception:
         console.print("[red]Error selecting relevant files and lines:[/red]")
         console.print_exception()
         return []
 
 
-@weave.op()
-def generate_pr_summary(context: List[Dict[str, str]], model: str) -> str:
-    """
-    Generates the final PR summary using the provided context.
-    Assumes the context is sufficient.
-    """
-    try:
-        client = get_openai_client()
-
-        # TODO: Implement context summarization/filtering if full context exceeds limit
-        context_summary = "\n".join(
-            [f"{msg['role']}: {msg['content']}" for msg in context]
-        )
-        # Simple truncation for now
-        if len(context_summary) > 15000:  # Adjust based on target model context window
-            context_summary = context_summary[:15000] + "... [context truncated]"
-
-        messages = FINAL_SUMMARIZER_PROMPT.format(context_summary=context_summary)
-
-        response = client.chat.completions.create(
-            model=model,  # Use the main summarization model
-            messages=messages,
-            temperature=0.1,
-            max_tokens=1500,  # Allow ample space for the summary
-        )
-        summary = response.choices[0].message.content.strip()
-        return summary
-
-    except Exception as e:
-        console.print(f"[red]Error generating final PR summary: {e}[/red]")
-        return f"Error: Could not generate PR summary due to an internal error ({e})."
-
-
-# Helper function to parse git grep -n output
 def parse_grep_output(output: str) -> Dict[str, List[Dict[str, Any]]]:
     """Parses output from 'git grep -n' into a dictionary.
 
@@ -720,7 +687,40 @@ def parse_grep_output(output: str) -> Dict[str, List[Dict[str, Any]]]:
 
 
 @weave.op()
-def generate_pr_summary_from_data(
+async def generate_pr_summary(context: List[Dict[str, str]], model: str) -> str:
+    """
+    Generates the final PR summary using the provided context.
+    Assumes the context is sufficient.
+    """
+    try:
+        client = get_openai_client()
+
+        # TODO: Implement context summarization/filtering if full context exceeds limit
+        context_summary = "\n".join(
+            [f"{msg['role']}: {msg['content']}" for msg in context]
+        )
+        # Simple truncation for now
+        if len(context_summary) > 15000:  # Adjust based on target model context window
+            context_summary = context_summary[:15000] + "... [context truncated]"
+
+        messages = FINAL_SUMMARIZER_PROMPT.format(context_summary=context_summary)
+
+        response = await client.chat.completions.create(
+            model=model,  # Use the main summarization model
+            messages=messages,
+            temperature=0.1,
+            max_tokens=1500,  # Allow ample space for the summary
+        )
+        summary = response.choices[0].message.content.strip()
+        return summary
+
+    except Exception as e:
+        console.print(f"[red]Error generating final PR summary: {e}[/red]")
+        return f"Error: Could not generate PR summary due to an internal error ({e})."
+
+
+@weave.op()
+async def generate_pr_summary_from_data(
     title: str,
     number: int,
     body: str,
@@ -766,50 +766,96 @@ def generate_pr_summary_from_data(
     console.print("[blue]Analyzing changes in modified files...[/blue]")
 
     combined_diff_content = ""
+    # List to hold coroutines for gathering relevant code in parallel
+    relevance_coroutines = []
+    relevance_file_paths = []
+
     for diff_item in diffs:
         file_path = diff_item["path"]
         diff = diff_item["content"]
         if not diff:
             continue
 
-        console.print(f"[blue]Processing changes for {file_path}[/blue]")
+        combined_diff_content += f"--- Diff for {file_path} ---\n"
+        combined_diff_content += diff
+        combined_diff_content += "\n\n"
+
+        # Add diff snippet immediately to context
         context.append(
             {
                 "role": "user",
                 "content": f"Diff snippet for {file_path}:\n```\n{diff[:500]}{'...' if len(diff) > 500 else ''}\n```",
             }
         )
-        combined_diff_content += f"--- Diff for {file_path} ---\n"
-        combined_diff_content += diff
-        combined_diff_content += "\n\n"
 
-        # Get relevant code from the changed files themselves
+        # Prepare coroutines for extracting relevant code
         try:
-            # Ensure quoting for paths with spaces
-            file_content = run_command(repo_path, f"cat '{file_path}'")
-            console.print(f"[blue]Extracting relevant code from {file_path}[/blue]")
-            relevant_code = extract_relevant_code(file_content, diff, model)
-            context.append(
-                {
-                    "role": "user",
-                    "content": f"Relevant code from {file_path}:\n```\n{relevant_code}\n```",
-                }
+            # Ensure quoting for paths with spaces - use async command running
+            file_content = await run_command_async(repo_path, f"cat '{file_path}'")
+            console.print(
+                f"[blue]Preparing to extract relevant code from {file_path}[/blue]"
             )
+
+            # Schedule the coroutine to be run concurrently
+            relevance_coroutines.append(
+                extract_relevant_code(file_content, diff, model)
+            )
+            relevance_file_paths.append(file_path)
+
         except Exception as e:
             console.print(
                 f"[yellow]Warning: Couldn't read {file_path} to extract relevant code: {e}[/yellow]"
             )
+
+    # Process extract_code_patterns in parallel with the relevance tasks
+    pattern_coroutine = None
+    if combined_diff_content:
+        console.print(
+            "[blue]Extracting critical dependency patterns from diffs using LLM...[/blue]"
+        )
+        pattern_coroutine = extract_code_patterns(
+            diff_content=combined_diff_content, model=model
+        )
+
+    # Gather all relevance results using asyncio.gather
+    if relevance_coroutines:
+        console.print(
+            f"[blue]Awaiting {len(relevance_coroutines)} code relevance tasks...[/blue]"
+        )
+        try:
+            relevance_results = await asyncio.gather(
+                *relevance_coroutines, return_exceptions=True
+            )
+
+            for i, result in enumerate(relevance_results):
+                file_path = relevance_file_paths[i]
+                if isinstance(result, Exception):
+                    console.print(
+                        f"[yellow]Error getting relevant code for {file_path}: {result}[/yellow]"
+                    )
+                    continue
+
+                relevant_code = result
+                context.append(
+                    {
+                        "role": "user",
+                        "content": f"Relevant code from {file_path}:\n```\n{relevant_code}\n```",
+                    }
+                )
+                console.print(f"[green]Added relevant code from {file_path}[/green]")
+        except Exception as e:
+            console.print(f"[red]Error gathering relevance results: {e}[/red]")
     # --- End processing diffs ---
 
     # --- Extract patterns and select relevant dependency-related context ---
     all_grep_output = ""
     if combined_diff_content:
-        console.print(
-            "[blue]Extracting critical dependency patterns from diffs using LLM...[/blue]"
-        )
-        patterns = extract_code_patterns(
-            diff_content=combined_diff_content, model=model
-        )
+        patterns = []
+        if pattern_coroutine:
+            try:
+                patterns = await pattern_coroutine
+            except Exception as e:
+                console.print(f"[red]Error extracting code patterns: {e}[/red]")
 
         if patterns:
             console.print(
@@ -822,42 +868,52 @@ def generate_pr_summary_from_data(
                     f"[blue]Searching codebase for dependency relationships ({len(grep_patterns)} patterns)...[/blue]"
                 )
 
+                # Run grep searches in parallel using asyncio directly with run_command_async
+                grep_tasks = []
                 for pattern in grep_patterns:
-                    # Use -n for line numbers
                     cmd = f"git grep -n '{pattern}'"
-                    try:
-                        grep_output = run_command(repo_path, cmd)
-                        if grep_output:
-                            filtered_output = ""
-                            # Filter out the changed files from grep results to focus on dependencies
-                            changed_file_paths = [d["path"] for d in diffs]
-                            for line in grep_output.strip().splitlines():
-                                file_in_line = (
-                                    line.split(":", 1)[0] if ":" in line else ""
-                                )
-                                if (
-                                    file_in_line
-                                    and file_in_line not in changed_file_paths
-                                ):
-                                    filtered_output += line + "\n"
+                    grep_tasks.append((pattern, cmd))
 
-                            if filtered_output:
-                                all_grep_output += f"--- Dependency results for pattern: {pattern} ---\n"
-                                all_grep_output += filtered_output.strip() + "\n\n"
-                                console.print(
-                                    f"[green]Found potential dependencies for pattern '{pattern}'[/green]"
-                                )
-                    except Exception as e_grep:
+                # Using asyncio.gather to run grep commands (non-async) concurrently
+                # We'll use a helper function to handle the subprocess calls
+                grep_results = await asyncio.gather(
+                    *[run_command_async(repo_path, cmd) for _, cmd in grep_tasks],
+                    return_exceptions=True,
+                )
+
+                for i, result in enumerate(grep_results):
+                    pattern = grep_tasks[i][0]
+                    if isinstance(result, Exception):
                         console.print(
-                            f"[yellow]Error searching for pattern '{pattern}': {e_grep}[/yellow]"
+                            f"[yellow]Error searching for pattern '{pattern}': {result}[/yellow]"
                         )
+                        continue
+
+                    grep_output = result
+                    if grep_output:
+                        filtered_output = ""
+                        # Filter out the changed files from grep results to focus on dependencies
+                        changed_file_paths = [d["path"] for d in diffs]
+                        for line in grep_output.strip().splitlines():
+                            file_in_line = line.split(":", 1)[0] if ":" in line else ""
+                            if file_in_line and file_in_line not in changed_file_paths:
+                                filtered_output += line + "\n"
+
+                        if filtered_output:
+                            all_grep_output += (
+                                f"--- Dependency results for pattern: {pattern} ---\n"
+                            )
+                            all_grep_output += filtered_output.strip() + "\n\n"
+                            console.print(
+                                f"[green]Found potential dependencies for pattern '{pattern}'[/green]"
+                            )
 
                 # Now, use the LLM to select specific dependency-related files based on grep output
                 if all_grep_output.strip():
                     console.print(
                         "[blue]Analyzing dependency relationships from search results...[/blue]"
                     )
-                    selected_sections = select_relevant_files_and_lines(
+                    selected_sections = await select_relevant_files_and_lines(
                         combined_diff_content=combined_diff_content,
                         combined_grep_output=all_grep_output,
                         model=model,
@@ -874,33 +930,53 @@ def generate_pr_summary_from_data(
                             }
                         )
 
-                        # Limit to 3 most relevant dependencies to avoid excessive context
-                        for section in selected_sections[:3]:
+                        # Get all snippets concurrently
+                        snippet_tasks = []
+                        for section in selected_sections[
+                            :3
+                        ]:  # Limit to 3 most relevant dependencies
                             try:
                                 file_path = section["file_path"]
                                 start_line = section["start_line"]
                                 end_line = section["end_line"]
 
-                                # Use sed to extract the line range efficiently
+                                # Prepare the command but execute them concurrently later
                                 escaped_file_path = file_path.replace("'", "'\\''")
                                 sed_cmd = f"sed -n '{start_line},{end_line}p' '{escaped_file_path}'"
-                                try:
-                                    snippet = run_command(repo_path, sed_cmd)
-                                    if snippet:
-                                        context.append(
-                                            {
-                                                "role": "user",
-                                                "content": f"Dependency in {file_path} (Lines {start_line}-{end_line}):\n```\n{snippet.strip()}\n```",
-                                            }
-                                        )
-                                except Exception as e_sed:
-                                    console.print(
-                                        f"[yellow]Error extracting dependency context from {file_path}: {e_sed}[/yellow]"
-                                    )
+                                snippet_tasks.append(
+                                    (file_path, start_line, end_line, sed_cmd)
+                                )
                             except KeyError as e:
                                 console.print(
                                     f"[yellow]Missing key in dependency section: {e}[/yellow]"
                                 )
+
+                        # Execute all sed commands concurrently with run_command_async
+                        if snippet_tasks:
+                            snippet_results = await asyncio.gather(
+                                *[
+                                    run_command_async(repo_path, cmd)
+                                    for _, _, _, cmd in snippet_tasks
+                                ],
+                                return_exceptions=True,
+                            )
+
+                            for i, result in enumerate(snippet_results):
+                                file_path, start_line, end_line, _ = snippet_tasks[i]
+                                if isinstance(result, Exception):
+                                    console.print(
+                                        f"[yellow]Error extracting dependency context from {file_path}: {result}[/yellow]"
+                                    )
+                                    continue
+
+                                snippet = result
+                                if snippet:
+                                    context.append(
+                                        {
+                                            "role": "user",
+                                            "content": f"Dependency in {file_path} (Lines {start_line}-{end_line}):\n```\n{snippet.strip()}\n```",
+                                        }
+                                    )
                     else:
                         console.print(
                             "[yellow]No significant dependency relationships found[/yellow]"
@@ -933,13 +1009,13 @@ def generate_pr_summary_from_data(
             f"[cyan]Evaluating context (iteration {iterations}/{max_iterations})...[/cyan]"
         )
 
-        evaluation_result = evaluate_context_sufficiency(context, model)
+        evaluation_result = await evaluate_context_sufficiency(context, model)
 
         if evaluation_result["sufficient"]:
             console.print(
                 "[green]Context sufficient. Generating final summary.[/green]"
             )
-            final_summary = generate_pr_summary(context, model)
+            final_summary = await generate_pr_summary(context, model)
             break
         elif evaluation_result["command"]:
             command = evaluation_result["command"]
@@ -953,7 +1029,7 @@ def generate_pr_summary_from_data(
 
             try:
                 console.print(f"[blue]Running command: {command[:100]}...[/blue]")
-                output = run_command(repo_path, command)
+                output = await run_command_async(repo_path, command)
                 output_summary = output
                 if len(output) > 3000:
                     console.print(
@@ -967,7 +1043,7 @@ def generate_pr_summary_from_data(
                         summarize_messages = OUTPUT_SUMMARIZER_PROMPT.format(
                             command=command, output_preview=output_preview
                         )
-                        summary_response = client.chat.completions.create(
+                        summary_response = await client.chat.completions.create(
                             model=model,
                             messages=summarize_messages,
                             temperature=0.1,
@@ -1015,7 +1091,7 @@ def generate_pr_summary_from_data(
             console.print(
                 "[yellow]Reached maximum iterations. Attempting final summary with current context.[/yellow]"
             )
-            final_summary = generate_pr_summary(context, model)
+            final_summary = await generate_pr_summary(context, model)
             if not final_summary.startswith("Error:"):
                 final_summary = (
                     "[Warning: Max iterations reached, summary may be incomplete]\n\n"
@@ -1032,7 +1108,7 @@ def generate_pr_summary_from_data(
 
 
 @weave.op()
-def agent_loop(repo_path: Path, model: str) -> str:
+async def agent_loop(repo_path: Path, model: str) -> str:
     """
     Fetches PR data and calls the op to generate the summary.
     """
@@ -1071,7 +1147,7 @@ def agent_loop(repo_path: Path, model: str) -> str:
             return f"Summary for PR #{pr_info['number']}: {pr_info['title']}\n\nDescription: {pr_info['body']}\n\nNo code changes detected or all files were ignored/binary."
 
         progress.update(task, description="Generating PR summary...")
-        summary = generate_pr_summary_from_data(
+        summary = await generate_pr_summary_from_data(
             title=pr_info["title"],
             number=pr_info["number"],
             body=pr_info["body"],
@@ -1087,3 +1163,13 @@ def agent_loop(repo_path: Path, model: str) -> str:
         progress.update(task, description="Summary generated.", completed=True, total=1)
 
     return summary
+
+
+# Add an entry point function for running the event loop
+def run_agent(repo_path: Path, model: str) -> str:
+    """
+    Entry point function that runs the asyncio event loop.
+    This is needed since weave.op() functions might not handle async functions properly.
+    """
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(agent_loop(repo_path, model))

@@ -6,7 +6,6 @@ import re
 import os
 import subprocess
 from pathlib import Path
-from typing import List
 
 from rich.console import Console
 
@@ -112,7 +111,7 @@ def run_command(repo_path: Path, command: str) -> str:
 def get_openai_client():
     """Create and return an OpenAI client"""
     # Lazy import to avoid loading OpenAI when not needed
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
     # Get API key from environment variable or use a default for testing
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -127,4 +126,29 @@ def get_openai_client():
             "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
         )
 
-    return OpenAI(api_key=api_key)
+    return AsyncOpenAI(api_key=api_key)
+
+
+# Add an async function to run commands
+async def run_command_async(repo_path: Path, command: str) -> str:
+    """Run a shell command asynchronously and return its output"""
+    import asyncio
+
+    try:
+        console.print(f"[blue]Running command async:[/blue] {command}")
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=repo_path,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            console.print(f"[red]Error running command:[/red] {stderr.decode()}")
+            return f"Error: {stderr.decode()}"
+
+        return stdout.decode().strip()
+    except Exception as e:
+        console.print(f"[red]Error running command:[/red] {e}")
+        return f"Error: {e}"

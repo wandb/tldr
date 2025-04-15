@@ -133,12 +133,14 @@ class LLMPatternScorer(Scorer):
                 expected=expected_json, actual=actual_json
             )
 
-            response = client.chat.completions.create(
-                model=self.scorer_model,  # Use model from class attribute
-                messages=messages,
-                temperature=0.1,
-                max_tokens=150,
-                response_format={"type": "json_object"},
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=self.scorer_model,  # Use model from class attribute
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=150,
+                    response_format={"type": "json_object"},
+                )
             )
             content = response.choices[0].message.content
             score_data = json.loads(content)
@@ -203,12 +205,14 @@ class PatternMatcher(Scorer):
                 expected=expected_json, actual=actual_json
             )
 
-            response = client.chat.completions.create(
-                model=self.matcher_model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=1000,  # Increased for detailed matching
-                response_format={"type": "json_object"},
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=self.matcher_model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=1000,  # Increased for detailed matching
+                    response_format={"type": "json_object"},
+                )
             )
             content = response.choices[0].message.content
             match_data = json.loads(content)
@@ -253,7 +257,9 @@ def extract_code_patterns_with_model(
     # Note: repo_path is part of the signature to match the dataset format,
     # but it's not directly used by extract_code_patterns anymore.
     # If other preprocessing needed repo_path, it could be used here.
-    return extract_code_patterns(diff_content=diff_content, model=eval_model)
+    return asyncio.run(
+        extract_code_patterns(diff_content=diff_content, model=eval_model)
+    )
 
 
 # --- 4. Preprocessing Function ---

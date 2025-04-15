@@ -123,12 +123,14 @@ class PrecisionScorer(Scorer):
                 actual=model_output,
             )
 
-            response = client.chat.completions.create(
-                model=self.scorer_model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=300,
-                response_format={"type": "json_object"},
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=self.scorer_model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=300,
+                    response_format={"type": "json_object"},
+                )
             )
             content = response.choices[0].message.content
             score_data = json.loads(content)
@@ -188,12 +190,14 @@ class RecallScorer(Scorer):
                 actual=model_output,
             )
 
-            response = client.chat.completions.create(
-                model=self.scorer_model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=300,
-                response_format={"type": "json_object"},
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=self.scorer_model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=300,
+                    response_format={"type": "json_object"},
+                )
             )
             content = response.choices[0].message.content
             score_data = json.loads(content)
@@ -331,8 +335,8 @@ def main(
 
     # Define the function to be evaluated
     @weave.op()
-    def extract_code_for_eval(file_content: str, diff: str):
-        return extract_relevant_code(file_content, diff, eval_model)
+    async def extract_code_for_eval(file_content: str, diff: str):
+        return await extract_relevant_code(file_content, diff, eval_model)
 
     # Run the evaluation
     async def run_eval():

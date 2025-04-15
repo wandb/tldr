@@ -3,8 +3,12 @@ Interactive chat functionality for PR exploration.
 """
 
 import os
+import re
+import sys
 import weave
+import asyncio
 from pathlib import Path
+from typing import List, Dict, Any, Optional
 
 import typer
 from rich.console import Console
@@ -17,6 +21,7 @@ from tldr.utils import (
     should_ignore_file,
     is_binary_file,
     get_openai_client,
+    run_command_async,
 )
 from tldr.agent import extract_relevant_code, summarize_grep_results
 from tldr.git import get_current_pr, process_pr_files
@@ -112,10 +117,12 @@ def chat_loop(
             )
 
             client = get_openai_client()
-            response = client.chat.completions.create(
-                model=model,
-                messages=temp_context,
-                temperature=0.1,
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=model,
+                    messages=temp_context,
+                    temperature=0.1,
+                )
             )
             new_summary = response.choices[0].message.content
 
@@ -193,8 +200,8 @@ def chat_loop(
                         console.print(
                             "[blue]File is large, extracting most relevant parts...[/blue]"
                         )
-                        relevant_content = extract_relevant_code(
-                            file_content, "", model
+                        relevant_content = asyncio.run(
+                            extract_relevant_code(file_content, "", model)
                         )
                         context.append(
                             {
@@ -303,7 +310,9 @@ def chat_loop(
                     )
 
                     # Add relevant code portions
-                    relevant_code = extract_relevant_code(file_content, diff, model)
+                    relevant_code = asyncio.run(
+                        extract_relevant_code(file_content, diff, model)
+                    )
                     context.append(
                         {
                             "role": "user",
@@ -339,11 +348,13 @@ def chat_loop(
                 },
             ]
 
-            extract_response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=extract_messages,
-                temperature=0.1,
-                max_tokens=200,
+            extract_response = asyncio.run(
+                client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=extract_messages,
+                    temperature=0.1,
+                    max_tokens=200,
+                )
             )
 
             potential_paths = [
@@ -416,8 +427,8 @@ def chat_loop(
                                     console.print(
                                         "[blue]File is large, extracting most relevant parts...[/blue]"
                                     )
-                                    relevant_content = extract_relevant_code(
-                                        file_content, "", model
+                                    relevant_content = asyncio.run(
+                                        extract_relevant_code(file_content, "", model)
                                     )
                                     context.append(
                                         {
@@ -476,11 +487,13 @@ def chat_loop(
                 },
             ]
 
-            pattern_response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=pattern_messages,
-                temperature=0.1,
-                max_tokens=200,
+            pattern_response = asyncio.run(
+                client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=pattern_messages,
+                    temperature=0.1,
+                    max_tokens=200,
+                )
             )
 
             potential_patterns = [
@@ -540,10 +553,12 @@ def chat_loop(
             _task = progress.add_task("Processing", total=None)
 
             client = get_openai_client()
-            response = client.chat.completions.create(
-                model=model,
-                messages=context,
-                temperature=0.1,
+            response = asyncio.run(
+                client.chat.completions.create(
+                    model=model,
+                    messages=context,
+                    temperature=0.1,
+                )
             )
 
             answer = response.choices[0].message.content
